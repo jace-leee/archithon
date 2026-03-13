@@ -1,0 +1,52 @@
+{
+  "title": "Archithon E2E Tests with Playwright",
+  "stories": [
+    {
+      "id": "E2E-001",
+      "title": "Playwright setup and configuration",
+      "priority": 1,
+      "passes": true,
+      "acceptanceCriteria": [
+        "@playwright/test installed in devDependencies",
+        "playwright.config.ts exists with webServer config for vite+backend",
+        "package.json has test:e2e script",
+        "npx playwright test --list shows 14 tests in 3 files"
+      ]
+    },
+    {
+      "id": "E2E-002",
+      "title": "Demo mode full flow E2E test",
+      "priority": 2,
+      "passes": true,
+      "acceptanceCriteria": [
+        "e2e/demo-flow.spec.ts exists with 4 tests",
+        "Tests enable demo mode, load floorplan, furniture, run placement",
+        "Tests verify step transitions and placement completion",
+        "Full flow reaches step 4 with Three.js canvas visible",
+        "All 4 demo-flow tests pass"
+      ]
+    },
+    {
+      "id": "E2E-003",
+      "title": "API health and mock endpoint tests",
+      "priority": 3,
+      "passes": true,
+      "acceptanceCriteria": [
+        "e2e/api-health.spec.ts exists with 6 tests",
+        "Tests verify /health, floorplan/mock, furniture/mock, placement/mock, cost/mock, placement/compute",
+        "All 6 API tests pass"
+      ]
+    },
+    {
+      "id": "E2E-004",
+      "title": "UI navigation and step wizard tests",
+      "priority": 4,
+      "passes": true,
+      "acceptanceCriteria": [
+        "e2e/navigation.spec.ts exists with 4 tests",
+        "Tests verify app loads, step 1 visible, demo toggle works",
+        "All 4 navigation tests pass"
+      ]
+    }
+  ]
+}
