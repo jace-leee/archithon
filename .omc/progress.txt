@@ -1,0 +1,10 @@
+# SAM3 Server Build Progress
+
+## Environment
+- A100 80GB (MIG 40GB), CUDA 12.4
+- Python 3.10.15, PyTorch 2.7.1+cu128
+- FastAPI, uvicorn, pillow, numpy already installed
+- SAM3 repo at ~/sam3 (empty dir - needs cloning)
+- HuggingFace hub installed but not authenticated
+
+## Iteration 1

@@ -1,0 +1,174 @@
+# ~/sam3-server/app/main.py
+
+import io
+import json
+import time
+import logging
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
+from PIL import Image
+
+from app.model import SAM3Model
+
+# ── 로깅 설정 ──────────────────────────────────────────────
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+)
+logger = logging.getLogger("sam3-server")
+
+
+# ── Lifespan: 서버 시작/종료 시 모델 관리 ─────────────────
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    SAM3Model.get_instance()
+    logger.info("SAM 3 model ready.")
+    yield
+    logger.info("Shutting down.")
+
+
+# ── FastAPI 앱 ─────────────────────────────────────────────
+app = FastAPI(
+    title="SAM 3 Inference Server",
+    description="Meta Segment Anything Model 3 — Text & Visual Prompt Segmentation API",
+    version="1.0.0",
+    lifespan=lifespan,
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+# ── 엔드포인트 ─────────────────────────────────────────────
+
+@app.get("/health")
+async def health():
+    """서버 상태 확인"""
+    import torch
+    return {
+        "status": "healthy",
+        "model": "SAM3",
+        "gpu": torch.cuda.get_device_name(0) if torch.cuda.is_available() else "N/A",
+        "gpu_memory_allocated_gb": round(
+            torch.cuda.memory_allocated(0) / 1e9, 2
+        ) if torch.cuda.is_available() else 0,
+    }
+
+
+@app.post("/predict/text")
+async def predict_text(
+    file: UploadFile = File(..., description="이미지 파일 (JPEG/PNG)"),
+    prompt: str = Form(..., description="텍스트 프롬프트 (예: 'person', '노란 버스')"),
+):
+    """
+    텍스트 프롬프트 기반 세그멘테이션 (PCS)
+
+    이미지와 텍스트를 전송하면 해당 개념에 매칭되는 모든 객체의
+    세그멘테이션 마스크, 바운딩 박스, 신뢰도 점수를 반환합니다.
+    """
+    start = time.time()
+    try:
+        contents = await file.read()
+        image = Image.open(io.BytesIO(contents)).convert("RGB")
+    except Exception:
+        raise HTTPException(status_code=400, detail="이미지를 읽을 수 없습니다.")
+
+    model = SAM3Model.get_instance()
+    result = model.predict_text(image, prompt)
+
+    elapsed = round(time.time() - start, 3)
+    logger.info(f"predict/text  prompt=\"{prompt}\"  {elapsed}s  objects={len(result['scores'])}")
+
+    return JSONResponse(content={
+        **result,
+        "prompt": prompt,
+        "inference_time_sec": elapsed,
+    })
+
+
+@app.post("/predict/multi-text")
+async def predict_multi_text(
+    file: UploadFile = File(..., description="이미지 파일"),
+    prompts: str = Form(..., description="텍스트 프롬프트 목록 (JSON 배열, 예: [\"person\", \"car\"])"),
+):
+    """
+    다중 텍스트 프롬프트 세그멘테이션
+
+    하나의 이미지에 여러 텍스트 프롬프트를 한번에 전송합니다.
+    이미지 인코딩은 한 번만 수행되어 효율적입니다.
+    """
+    start = time.time()
+    try:
+        contents = await file.read()
+        image = Image.open(io.BytesIO(contents)).convert("RGB")
+    except Exception:
+        raise HTTPException(status_code=400, detail="이미지를 읽을 수 없습니다.")
+
+    try:
+        prompt_list = json.loads(prompts)
+        if not isinstance(prompt_list, list):
+            raise ValueError
+    except (json.JSONDecodeError, ValueError):
+        raise HTTPException(
+            status_code=400,
+            detail="prompts는 JSON 배열 형식이어야 합니다. 예: [\"person\", \"car\"]",
+        )
+
+    model = SAM3Model.get_instance()
+    result = model.predict_multi_text(image, prompt_list)
+
+    elapsed = round(time.time() - start, 3)
+    logger.info(f"predict/multi-text  prompts={prompt_list}  {elapsed}s")
+
+    return JSONResponse(content={
+        **result,
+        "inference_time_sec": elapsed,
+    })
+
+
+@app.post("/predict/box")
+async def predict_box(
+    file: UploadFile = File(..., description="이미지 파일"),
+    box: str = Form(..., description="바운딩 박스 [x1, y1, x2, y2]"),
+):
+    """
+    바운딩 박스 프롬프트 기반 세그멘테이션 (PVS)
+
+    이미지와 바운딩 박스 좌표를 전송하면 해당 영역의
+    세그멘테이션 마스크를 반환합니다.
+    """
+    start = time.time()
+    try:
+        contents = await file.read()
+        image = Image.open(io.BytesIO(contents)).convert("RGB")
+    except Exception:
+        raise HTTPException(status_code=400, detail="이미지를 읽을 수 없습니다.")
+
+    try:
+        box_coords = json.loads(box)
+        if not isinstance(box_coords, list) or len(box_coords) != 4:
+            raise ValueError
+    except (json.JSONDecodeError, ValueError):
+        raise HTTPException(
+            status_code=400,
+            detail="box는 [x1, y1, x2, y2] 형식이어야 합니다.",
+        )
+
+    model = SAM3Model.get_instance()
+    result = model.predict_box(image, box_coords)
+
+    elapsed = round(time.time() - start, 3)
+    logger.info(f"predict/box  box={box_coords}  {elapsed}s")
+
+    return JSONResponse(content={
+        **result,
+        "box": box_coords,
+        "inference_time_sec": elapsed,
+    })

@@ -1,52 +1,44 @@
 {
-  "title": "Archithon E2E Tests with Playwright",
+  "title": "SAM 3D Objects Integration",
   "stories": [
     {
-      "id": "E2E-001",
-      "title": "Playwright setup and configuration",
-      "priority": 1,
-      "passes": true,
+      "id": "US-001",
+      "title": "Clone and install sam-3d-objects repository",
       "acceptanceCriteria": [
-        "@playwright/test installed in devDependencies",
-        "playwright.config.ts exists with webServer config for vite+backend",
-        "package.json has test:e2e script",
-        "npx playwright test --list shows 14 tests in 3 files"
-      ]
+        "sam-3d-objects repo cloned to ~/sam-3d-objects with source files present",
+        "All dependencies installed successfully",
+        "python import of inference module succeeds"
+      ],
+      "passes": false
     },
     {
-      "id": "E2E-002",
-      "title": "Demo mode full flow E2E test",
-      "priority": 2,
-      "passes": true,
+      "id": "US-002",
+      "title": "Download SAM 3D Objects checkpoint",
       "acceptanceCriteria": [
-        "e2e/demo-flow.spec.ts exists with 4 tests",
-        "Tests enable demo mode, load floorplan, furniture, run placement",
-        "Tests verify step transitions and placement completion",
-        "Full flow reaches step 4 with Three.js canvas visible",
-        "All 4 demo-flow tests pass"
-      ]
+        "Model checkpoint downloaded and available at expected path",
+        "Inference object can be instantiated without errors"
+      ],
+      "passes": false
     },
     {
-      "id": "E2E-003",
-      "title": "API health and mock endpoint tests",
-      "priority": 3,
-      "passes": true,
+      "id": "US-003",
+      "title": "Add SAM3DModel class and /predict/3d endpoint",
       "acceptanceCriteria": [
-        "e2e/api-health.spec.ts exists with 6 tests",
-        "Tests verify /health, floorplan/mock, furniture/mock, placement/mock, cost/mock, placement/compute",
-        "All 6 API tests pass"
-      ]
+        "app/model_3d.py exists with SAM3DModel singleton class",
+        "POST /predict/3d endpoint added to main.py accepting image + mask",
+        "Endpoint returns PLY file as downloadable response"
+      ],
+      "passes": false
     },
     {
-      "id": "E2E-004",
-      "title": "UI navigation and step wizard tests",
-      "priority": 4,
-      "passes": true,
+      "id": "US-004",
+      "title": "Server starts and /predict/3d endpoint works end-to-end",
       "acceptanceCriteria": [
-        "e2e/navigation.spec.ts exists with 4 tests",
-        "Tests verify app loads, step 1 visible, demo toggle works",
-        "All 4 navigation tests pass"
-      ]
+        "Server starts with both SAM3 and SAM3D models loaded",
+        "curl to /predict/3d returns valid PLY file",
+        "External URL test returns 200"
+      ],
+      "passes": false
     }
   ]
 }
