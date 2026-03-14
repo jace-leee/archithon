@@ -6,12 +6,16 @@ import time
 import logging
 from contextlib import asynccontextmanager
 
+import base64
+
+import numpy as np
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 from PIL import Image
 
 from app.model import SAM3Model
+from app.model_3d import SAM3DModel
 
 # ── 로깅 설정 ──────────────────────────────────────────────
 logging.basicConfig(
@@ -25,7 +29,9 @@ logger = logging.getLogger("sam3-server")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     SAM3Model.get_instance()
-    logger.info("SAM 3 model ready.")
+    logger.info("SAM 3 segmentation model ready.")
+    SAM3DModel.get_instance()
+    logger.info("SAM 3D Objects model ready.")
     yield
     logger.info("Shutting down.")
 
@@ -54,7 +60,7 @@ async def health():
     import torch
     return {
         "status": "healthy",
-        "model": "SAM3",
+        "models": ["SAM3", "SAM3D"],
         "gpu": torch.cuda.get_device_name(0) if torch.cuda.is_available() else "N/A",
         "gpu_memory_allocated_gb": round(
             torch.cuda.memory_allocated(0) / 1e9, 2
@@ -172,3 +178,75 @@ async def predict_box(
         "box": box_coords,
         "inference_time_sec": elapsed,
     })
+
+
+@app.post("/predict/3d")
+async def predict_3d(
+    file: UploadFile = File(..., description="이미지 파일 (JPEG/PNG)"),
+    mask: UploadFile = File(None, description="마스크 파일 (PNG, 흰색=객체). 없으면 prompt로 자동 생성"),
+    prompt: str = Form(None, description="텍스트 프롬프트 (mask 없을 때 SAM3로 자동 세그멘테이션)"),
+    mask_index: int = Form(0, description="자동 세그멘테이션 시 사용할 마스크 인덱스"),
+    seed: int = Form(42, description="3D 생성 시드"),
+):
+    """
+    이미지 → 3D Gaussian Splat (PLY) 변환
+
+    mask 파일을 직접 제공하거나, prompt를 지정하면 SAM3로 자동 세그멘테이션 후
+    해당 마스크를 사용하여 3D 모델을 생성합니다.
+
+    반환: PLY 파일 (application/octet-stream)
+    """
+    start = time.time()
+
+    # 이미지 로드
+    try:
+        contents = await file.read()
+        image = Image.open(io.BytesIO(contents)).convert("RGB")
+        image_np = np.array(image)
+    except Exception:
+        raise HTTPException(status_code=400, detail="이미지를 읽을 수 없습니다.")
+
+    # 마스크 결정
+    if mask is not None:
+        # 직접 제공된 마스크
+        try:
+            mask_contents = await mask.read()
+            mask_img = Image.open(io.BytesIO(mask_contents)).convert("L")
+            mask_np = np.array(mask_img) > 128
+        except Exception:
+            raise HTTPException(status_code=400, detail="마스크를 읽을 수 없습니다.")
+    elif prompt is not None:
+        # SAM3로 자동 세그멘테이션
+        sam3 = SAM3Model.get_instance()
+        result = sam3.predict_text(image, prompt)
+        if not result["masks"]:
+            raise HTTPException(
+                status_code=404,
+                detail=f"'{prompt}'에 해당하는 객체를 찾을 수 없습니다.",
+            )
+        idx = min(mask_index, len(result["masks"]) - 1)
+        # base64 PNG 마스크 디코딩
+        mask_bytes = base64.b64decode(result["masks"][idx])
+        mask_img = Image.open(io.BytesIO(mask_bytes)).convert("L")
+        mask_np = np.array(mask_img) > 128
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail="mask 파일 또는 prompt 중 하나를 제공해야 합니다.",
+        )
+
+    # 3D 생성
+    sam3d = SAM3DModel.get_instance()
+    glb_bytes = sam3d.generate_3d(image_np, mask_np, seed=seed)
+
+    elapsed = round(time.time() - start, 3)
+    logger.info(f"predict/3d  seed={seed}  {elapsed}s  glb_size={len(glb_bytes)}")
+
+    return Response(
+        content=glb_bytes,
+        media_type="model/gltf-binary",
+        headers={
+            "Content-Disposition": "attachment; filename=output.glb",
+            "X-Inference-Time-Sec": str(elapsed),
+        },
+    )

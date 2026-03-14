@@ -1,4 +1,4 @@
-# SAM3 Inference Server API
+# SAM3 + SAM3D Inference Server API
 
 Base URL: `http://localhost:7777`
 
@@ -21,16 +21,16 @@ curl http://localhost:7777/health
 ```json
 {
   "status": "healthy",
-  "model": "SAM3",
+  "models": ["SAM3", "SAM3D"],
   "gpu": "NVIDIA A100 80GB PCIe MIG 3g.40gb",
-  "gpu_memory_allocated_gb": 3.46
+  "gpu_memory_allocated_gb": 17.16
 }
 ```
 
 | 필드 | 타입 | 설명 |
 |------|------|------|
 | `status` | string | 서버 상태 (`"healthy"`) |
-| `model` | string | 로드된 모델명 |
+| `models` | array | 로드된 모델 목록 |
 | `gpu` | string | GPU 디바이스명 |
 | `gpu_memory_allocated_gb` | float | GPU 메모리 사용량 (GB) |
 
@@ -57,7 +57,7 @@ curl -X POST http://localhost:7777/predict/text \
 
 ```json
 {
-  "masks": [[[0, 0, 1, 1, ...], ...]],
+  "masks": ["iVBORw0KGgo...(base64 PNG)..."],
   "boxes": [[x1, y1, x2, y2], ...],
   "scores": [0.95, 0.87, ...],
   "prompt": "person",
@@ -67,7 +67,7 @@ curl -X POST http://localhost:7777/predict/text \
 
 | 필드 | 타입 | 설명 |
 |------|------|------|
-| `masks` | array | 세그멘테이션 마스크 (이진 배열) |
+| `masks` | array[string] | 세그멘테이션 마스크 (base64 인코딩된 PNG) |
 | `boxes` | array | 바운딩 박스 좌표 `[x1, y1, x2, y2]` |
 | `scores` | array | 각 객체의 신뢰도 점수 (0~1) |
 | `prompt` | string | 입력된 텍스트 프롬프트 |
@@ -99,13 +99,13 @@ curl -X POST http://localhost:7777/predict/multi-text \
   "results": [
     {
       "prompt": "person",
-      "masks": [[[0, 0, 1, ...], ...]],
+      "masks": ["iVBORw0KGgo...(base64 PNG)..."],
       "boxes": [[x1, y1, x2, y2], ...],
       "scores": [0.95, ...]
     },
     {
       "prompt": "car",
-      "masks": [[[0, 1, 1, ...], ...]],
+      "masks": ["iVBORw0KGgo...(base64 PNG)..."],
       "boxes": [[x1, y1, x2, y2], ...],
       "scores": [0.91, ...]
     }
@@ -118,7 +118,7 @@ curl -X POST http://localhost:7777/predict/multi-text \
 |------|------|------|
 | `results` | array | 각 프롬프트별 세그멘테이션 결과 |
 | `results[].prompt` | string | 해당 프롬프트 텍스트 |
-| `results[].masks` | array | 세그멘테이션 마스크 |
+| `results[].masks` | array[string] | 세그멘테이션 마스크 (base64 PNG) |
 | `results[].boxes` | array | 바운딩 박스 좌표 |
 | `results[].scores` | array | 신뢰도 점수 |
 | `inference_time_sec` | float | 전체 추론 소요 시간 (초) |
@@ -146,7 +146,7 @@ curl -X POST http://localhost:7777/predict/box \
 
 ```json
 {
-  "masks": [[[0, 0, 1, 1, ...], ...]],
+  "masks": ["iVBORw0KGgo...(base64 PNG)..."],
   "boxes": [[100, 200, 400, 500]],
   "scores": [0.97],
   "box": [100, 200, 400, 500],
@@ -156,11 +156,56 @@ curl -X POST http://localhost:7777/predict/box \
 
 | 필드 | 타입 | 설명 |
 |------|------|------|
-| `masks` | array | 세그멘테이션 마스크 |
+| `masks` | array[string] | 세그멘테이션 마스크 (base64 PNG) |
 | `boxes` | array | 바운딩 박스 좌표 |
 | `scores` | array | 신뢰도 점수 |
 | `box` | array | 입력된 바운딩 박스 좌표 |
 | `inference_time_sec` | float | 추론 소요 시간 (초) |
+
+---
+
+## POST /predict/3d
+
+이미지의 객체를 3D Gaussian Splat (PLY)으로 변환합니다. 마스크를 직접 제공하거나, 텍스트 프롬프트로 SAM3가 자동 세그멘테이션합니다.
+
+**Request** — `multipart/form-data`
+
+| 필드 | 타입 | 필수 | 설명 |
+|------|------|------|------|
+| `file` | file | O | 이미지 파일 (JPEG/PNG) |
+| `mask` | file | - | 마스크 파일 (PNG, 흰색=객체). prompt와 택1 |
+| `prompt` | string | - | 텍스트 프롬프트. mask와 택1 (SAM3로 자동 세그멘테이션) |
+| `mask_index` | int | - | 자동 세그멘테이션 시 사용할 마스크 인덱스 (기본: 0) |
+| `seed` | int | - | 3D 생성 시드 (기본: 42) |
+
+**방법 1: 텍스트 프롬프트로 자동 마스크 생성**
+
+```bash
+curl --max-time 600 -o output.glb -X POST http://localhost:7777/predict/3d \
+  -F "file=@photo.jpg" \
+  -F "prompt=chair" \
+  -F "seed=42"
+```
+
+**방법 2: 직접 마스크 제공**
+
+```bash
+curl --max-time 600 -o output.glb -X POST http://localhost:7777/predict/3d \
+  -F "file=@photo.jpg" \
+  -F "mask=@mask.png" \
+  -F "seed=42"
+```
+
+**Response**
+
+GLB 파일 (glTF 2.0 binary, `model/gltf-binary`)
+
+| 헤더 | 설명 |
+|------|------|
+| `Content-Disposition` | `attachment; filename=output.glb` |
+| `X-Inference-Time-Sec` | 추론 소요 시간 (초) |
+
+> **참고:** 3D 생성은 ~60~120초 소요됩니다. 클라이언트 timeout을 충분히 설정하세요.
 
 ---
 
@@ -179,6 +224,8 @@ curl -X POST http://localhost:7777/predict/box \
 | 잘못된 이미지 파일 | `"이미지를 읽을 수 없습니다."` |
 | 잘못된 prompts 형식 | `"prompts는 JSON 배열 형식이어야 합니다."` |
 | 잘못된 box 형식 | `"box는 [x1, y1, x2, y2] 형식이어야 합니다."` |
+| mask와 prompt 둘 다 없음 | `"mask 파일 또는 prompt 중 하나를 제공해야 합니다."` |
+| 객체 미발견 | `"'{prompt}'에 해당하는 객체를 찾을 수 없습니다."` |
 
 ---
 
@@ -189,4 +236,12 @@ cd ~/archithon
 bash run.sh
 ```
 
-서버는 `0.0.0.0:7777`에서 시작됩니다.
+서버는 `0.0.0.0:7777`에서 시작됩니다. 두 모델 로드에 약 90초 소요됩니다.
+
+## 모델 정보
+
+| 모델 | 용도 | GPU 메모리 |
+|------|------|-----------|
+| SAM3 (Segment Anything 3) | 이미지 세그멘테이션 | ~3.5 GB |
+| SAM3D (SAM 3D Objects) | 이미지 → 3D Gaussian Splat | ~13.7 GB |
+| **합계** | | **~17.2 GB** |
