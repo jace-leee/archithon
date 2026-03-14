@@ -229,6 +229,66 @@ GLB 파일 (glTF 2.0 binary, `model/gltf-binary`)
 
 ---
 
+## POST /generate
+
+텍스트 → 이미지 생성 (FLUX.2 Klein T2I). 4스텝 추론으로 ~2초 내에 1024x1024 이미지를 생성합니다.
+
+**Request** — `multipart/form-data`
+
+| 필드 | 타입 | 필수 | 설명 |
+|------|------|------|------|
+| `prompt` | string | O | 이미지 생성 프롬프트 (서술형 권장) |
+| `width` | int | - | 이미지 너비 (16의 배수, 기본: 1024, 최대: 2048) |
+| `height` | int | - | 이미지 높이 (16의 배수, 기본: 1024, 최대: 2048) |
+| `seed` | int | - | 시드 (-1이면 랜덤, 기본: -1) |
+
+```bash
+curl -o output.png -X POST http://localhost:7777/generate \
+  -F "prompt=A futuristic cyberpunk city at night, neon lights, 8K" \
+  -F "width=1024" \
+  -F "height=1024" \
+  -F "seed=42"
+```
+
+**Response**
+
+PNG 이미지 (`image/png`)
+
+| 헤더 | 설명 |
+|------|------|
+| `X-Inference-Time-Sec` | 추론 소요 시간 (초) |
+
+---
+
+## POST /edit
+
+이미지 → 이미지 변환 (FLUX.2 Klein I2I). 입력 이미지를 프롬프트 기반으로 변환합니다.
+
+**Request** — `multipart/form-data`
+
+| 필드 | 타입 | 필수 | 설명 |
+|------|------|------|------|
+| `image_file` | file | O | 입력 이미지 (JPEG/PNG) |
+| `prompt` | string | - | 변환 프롬프트 (기본: "Photorealistic, natural lighting, 8K detail") |
+| `seed` | int | - | 시드 (-1이면 랜덤, 기본: -1) |
+
+```bash
+curl -o output.png -X POST http://localhost:7777/edit \
+  -F "image_file=@input.jpg" \
+  -F "prompt=Photorealistic rendering, cinematic lighting, detailed textures" \
+  -F "seed=42"
+```
+
+**Response**
+
+PNG 이미지 (`image/png`, 1024x1024)
+
+| 헤더 | 설명 |
+|------|------|
+| `X-Inference-Time-Sec` | 추론 소요 시간 (초) |
+
+---
+
 ## 서버 실행
 
 ```bash
@@ -236,12 +296,13 @@ cd ~/archithon
 bash run.sh
 ```
 
-서버는 `0.0.0.0:7777`에서 시작됩니다. 두 모델 로드에 약 90초 소요됩니다.
+서버는 `0.0.0.0:7777`에서 시작됩니다. 3개 모델 로드에 약 3분 소요됩니다.
 
 ## 모델 정보
 
 | 모델 | 용도 | GPU 메모리 |
 |------|------|-----------|
 | SAM3 (Segment Anything 3) | 이미지 세그멘테이션 | ~3.5 GB |
-| SAM3D (SAM 3D Objects) | 이미지 → 3D Gaussian Splat | ~13.7 GB |
-| **합계** | | **~17.2 GB** |
+| SAM3D (SAM 3D Objects) | 이미지 → 3D GLB | ~13.7 GB |
+| FLUX.2 Klein 4B | 이미지 생성/편집 (T2I, I2I) | ~16.0 GB |
+| **합계** | | **~33.2 GB / 40 GB** |

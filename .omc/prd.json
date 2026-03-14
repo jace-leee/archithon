@@ -1,42 +1,43 @@
 {
-  "title": "SAM 3D Objects Integration",
+  "title": "FLUX.2 Klein Integration into SAM3 Server",
   "stories": [
     {
       "id": "US-001",
-      "title": "Clone and install sam-3d-objects repository",
+      "title": "Install diffusers and FLUX.2 dependencies",
       "acceptanceCriteria": [
-        "sam-3d-objects repo cloned to ~/sam-3d-objects with source files present",
-        "All dependencies installed successfully",
-        "python import of inference module succeeds"
+        "python -c 'from diffusers import FluxPipeline; print(\"OK\")' succeeds",
+        "transformers, accelerate, sentencepiece, protobuf installed"
       ],
       "passes": false
     },
     {
       "id": "US-002",
-      "title": "Download SAM 3D Objects checkpoint",
+      "title": "Download FLUX.2 Klein 4B checkpoint",
       "acceptanceCriteria": [
-        "Model checkpoint downloaded and available at expected path",
-        "Inference object can be instantiated without errors"
+        "Model files cached in ~/.cache/huggingface/",
+        "Pipeline can be instantiated without download"
       ],
       "passes": false
     },
     {
       "id": "US-003",
-      "title": "Add SAM3DModel class and /predict/3d endpoint",
+      "title": "Create model_flux.py and add endpoints to main.py",
       "acceptanceCriteria": [
-        "app/model_3d.py exists with SAM3DModel singleton class",
-        "POST /predict/3d endpoint added to main.py accepting image + mask",
-        "Endpoint returns PLY file as downloadable response"
+        "app/model_flux.py exists with FluxModel singleton",
+        "POST /generate endpoint (T2I) returns PNG image",
+        "POST /edit endpoint (I2I) returns PNG image",
+        "/health shows FLUX in models list"
       ],
       "passes": false
     },
     {
       "id": "US-004",
-      "title": "Server starts and /predict/3d endpoint works end-to-end",
+      "title": "Server starts and endpoints work via external URL",
       "acceptanceCriteria": [
-        "Server starts with both SAM3 and SAM3D models loaded",
-        "curl to /predict/3d returns valid PLY file",
-        "External URL test returns 200"
+        "curl to /health returns models: [SAM3, SAM3D, FLUX]",
+        "curl to /generate returns valid PNG",
+        "curl to /edit returns valid PNG",
+        "External URL test returns 200 for all endpoints"
       ],
       "passes": false
     }
