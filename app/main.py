@@ -16,7 +16,6 @@ from PIL import Image
 
 from app.model import SAM3Model
 from app.model_3d import SAM3DModel
-from app.model_flux import FluxModel
 
 # ── 로깅 설정 ──────────────────────────────────────────────
 logging.basicConfig(
@@ -33,8 +32,6 @@ async def lifespan(app: FastAPI):
     logger.info("SAM 3 segmentation model ready.")
     SAM3DModel.get_instance()
     logger.info("SAM 3D Objects model ready.")
-    FluxModel.get_instance()
-    logger.info("FLUX.2 Klein model ready.")
     yield
     logger.info("Shutting down.")
 
@@ -42,7 +39,7 @@ async def lifespan(app: FastAPI):
 # ── FastAPI 앱 ─────────────────────────────────────────────
 app = FastAPI(
     title="Archithon Vision Server",
-    description="SAM3 Segmentation + SAM3D 3D Generation + FLUX.2 Image Generation API",
+    description="SAM3 Segmentation + SAM3D 3D Generation API",
     version="2.0.0",
     lifespan=lifespan,
 )
@@ -63,7 +60,7 @@ async def health():
     import torch
     return {
         "status": "healthy",
-        "models": ["SAM3", "SAM3D", "FLUX"],
+        "models": ["SAM3", "SAM3D"],
         "gpu": torch.cuda.get_device_name(0) if torch.cuda.is_available() else "N/A",
         "gpu_memory_allocated_gb": round(
             torch.cuda.memory_allocated(0) / 1e9, 2
@@ -254,67 +251,3 @@ async def predict_3d(
         },
     )
 
-
-# ── FLUX.2 Klein 엔드포인트 ────────────────────────────────
-
-@app.post("/generate")
-async def generate_image(
-    prompt: str = Form(..., description="이미지 생성 프롬프트 (서술형 권장)"),
-    width: int = Form(1024, description="이미지 너비 (16의 배수, 최대 2048)"),
-    height: int = Form(1024, description="이미지 높이 (16의 배수, 최대 2048)"),
-    seed: int = Form(-1, description="시드 (-1이면 랜덤)"),
-):
-    """
-    텍스트 → 이미지 생성 (FLUX.2 Klein T2I)
-
-    프롬프트를 기반으로 고품질 이미지를 생성합니다.
-    4스텝 추론으로 ~1.5초 내에 1024x1024 이미지를 생성합니다.
-    """
-    start = time.time()
-
-    flux = FluxModel.get_instance()
-    png_bytes = flux.generate(prompt, width=width, height=height, seed=seed)
-
-    elapsed = round(time.time() - start, 3)
-    logger.info(f"generate  prompt=\"{prompt[:50]}\"  {width}x{height}  {elapsed}s")
-
-    return Response(
-        content=png_bytes,
-        media_type="image/png",
-        headers={"X-Inference-Time-Sec": str(elapsed)},
-    )
-
-
-@app.post("/edit")
-async def edit_image(
-    image_file: UploadFile = File(..., description="입력 이미지 (JPEG/PNG)"),
-    prompt: str = Form(
-        "Photorealistic, natural lighting, 8K detail",
-        description="변환 프롬프트",
-    ),
-    seed: int = Form(-1, description="시드 (-1이면 랜덤)"),
-):
-    """
-    이미지 → 이미지 변환 (FLUX.2 Klein I2I)
-
-    입력 이미지를 프롬프트 기반으로 변환합니다.
-    """
-    start = time.time()
-
-    try:
-        contents = await image_file.read()
-        image = Image.open(io.BytesIO(contents)).convert("RGB")
-    except Exception:
-        raise HTTPException(status_code=400, detail="이미지를 읽을 수 없습니다.")
-
-    flux = FluxModel.get_instance()
-    png_bytes = flux.edit(image, prompt=prompt, seed=seed)
-
-    elapsed = round(time.time() - start, 3)
-    logger.info(f"edit  prompt=\"{prompt[:50]}\"  {elapsed}s")
-
-    return Response(
-        content=png_bytes,
-        media_type="image/png",
-        headers={"X-Inference-Time-Sec": str(elapsed)},
-    )
